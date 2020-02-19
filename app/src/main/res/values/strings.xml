@@ -1,3 +1,13 @@
 <resources>
     <string name="app_name">Waste Mainframe</string>
+    <string name="ip_port">http:\\192.168.2.1\</string>
+    <string name="pleasewait">Please wait.....</string>
+
+    <string name="failureLabel">Failure</string>
+    <string name="noInternetConnection">Check Connectivity</string>
+    <string name="noInternetConnectionMgs">No internet connection. Make sure that Wi-Fi or cellular mobile data is turned on,and then try again.</string>
+    <string name="message">Message</string>
+    <string name="ok">OK</string>
+    <string name="title_activity_maps">Map</string>
+
 </resources>
