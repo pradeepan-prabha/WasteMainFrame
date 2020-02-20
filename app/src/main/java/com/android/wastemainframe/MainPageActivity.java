@@ -1,8 +1,10 @@
 package com.android.wastemainframe;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.cardview.widget.CardView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.fragment.app.FragmentActivity;
 
 import android.Manifest;
 import android.app.Activity;
@@ -12,7 +14,10 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.location.Location;
 import android.os.Bundle;
 import android.os.Environment;
@@ -22,6 +27,7 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -34,6 +40,15 @@ import com.chakra.clocationfinder.CLocationHelper;
 import com.chakra.clocationfinder.LocationListenerCallBack;
 import com.chakra.volleyjar.CVolleyHelper;
 import com.chakra.volleyjar.IResult;
+import com.google.android.gms.maps.CameraUpdate;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.MarkerOptions;
+import com.isapanah.awesomespinner.AwesomeSpinner;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -45,26 +60,25 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
-import static com.chakra.clocationfinder.FusedLocationHandlers.TAG_STR;
-
-public class MainPageActivity extends AppCompatActivity implements IResult, LocationListenerCallBack {
+public class MainPageActivity extends FragmentActivity implements OnMapReadyCallback, IResult, LocationListenerCallBack {
 
     private CVolleyHelper mVolleyService;
     private ProgressDialog pDialog;
-    private ImageButton btnSelect;
+    private CardView btnSelect;
     private int REQUEST_CAMERA = 0, SELECT_FILE = 1;
     private String userChoosenTask;
     int COMPRESSION_QUALITY = 50;
     int IMAGEHEIGHT = 640;
     int IMAGEWIDTH = 480;
     Bitmap.CompressFormat IMAGEFORMAT = Bitmap.CompressFormat.JPEG;
-    private ImageView imageView;
     private CLocationHelper CLocationWrapper;
     public static final String TAG_STR = "LOC_BROADCASTER";
     private static final int PERMISSION_REQUEST_CODE = 1;
-    private Button locationBtn;
+    private CardView locationBtn;
     private TextView mLat;
     private TextView mLng;
     private TextView acc;
@@ -82,16 +96,23 @@ public class MainPageActivity extends AppCompatActivity implements IResult, Loca
     private String County;
     private String PIN;
     private String Area;
+    private GoogleMap mMap;
+    private CardView imageViewCardAdaptor;
+    private ImageView imageViewAttach;
+    private TextView addressTv;
+    private String route;
+    private AwesomeSpinner my_spinner;
+    private String encodedImage;
+    private CardView submitImage;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main_page);
+        setContentView(R.layout.activity_source_form);
 
         pDialog = new ProgressDialog(this);
         btnSelect = findViewById(R.id.btnSelectPhoto);
-        imageView = findViewById(R.id.imageView);
-        locationBtn = (Button) findViewById(R.id.locbtn);
+        locationBtn = (CardView) findViewById(R.id.locbtn);
         mLat = (TextView) findViewById(R.id.lat);
         mLng = (TextView) findViewById(R.id.lng);
         acc = (TextView) findViewById(R.id.acc);
@@ -100,13 +121,31 @@ public class MainPageActivity extends AppCompatActivity implements IResult, Loca
         speed = (TextView) findViewById(R.id.speed);
         bearing = (TextView) findViewById(R.id.bearing);
         time = (TextView) findViewById(R.id.time);
+        addressTv = (TextView) findViewById(R.id.addressTv);
         mapView = (Button) findViewById(R.id.mapView);
+        mapView = (Button) findViewById(R.id.mapView);
+        submitImage = (CardView) findViewById(R.id.submit_image);
+        imageViewAttach = (ImageView) findViewById(R.id.imageViewAttach);
+        imageViewCardAdaptor = (CardView) findViewById(R.id.imageViewCardAdaptor);
+
+        initSprinner();
+
         mVolleyService = new CVolleyHelper(this, this);
+        // Obtain the SupportMapFragment and get notified when the map is ready to be used.
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.map);
+        mapFragment.getMapAsync(this);
 
         btnSelect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 selectImage();
+            }
+        });
+        submitImage.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                imageProcessRequest(encodedImage);
             }
         });
         mapView.setOnClickListener(new View.OnClickListener() {
@@ -135,14 +174,103 @@ public class MainPageActivity extends AppCompatActivity implements IResult, Loca
                 speed.setText("");
                 bearing.setText("");
                 time.setText("");
-                locationBtn.setText("Fetching");
-                locationBtn.setBackgroundColor(Color.parseColor("#FF0000"));
             }
         });
         //Check permission is available or not
         //Request Location
         requestLocation();
-        mVolleyService.sendRequest(this, Request.Method.GET, "https://maps.googleapis.com/maps/api/geocode/json?latlng=40.714224,-73.961452&key=AIzaSyBhDoMmm8hJNWr0XRFSMGN2T5spmJSqegQ", null, "geocodeRequest", "application/json");
+
+    }
+
+    private void initSprinner() {
+
+        AwesomeSpinner wasteTypeSpinner = findViewById(R.id.wasteTypeSpinner);
+        AwesomeSpinner wasteCharSpinner = findViewById(R.id.wasteCharSpinner);
+        AwesomeSpinner locTypeSpinner = findViewById(R.id.Loc_typeSpinner);
+        AwesomeSpinner wasteShapeSpinner = findViewById(R.id.wasteShapeSpinner);
+        AwesomeSpinner sourceTypeSpinner = findViewById(R.id.sourceTypeSpinner);
+
+//wasteTypeSpinner
+        List<String> wasteTypeSpinnercategories = new ArrayList<String>();
+        wasteTypeSpinnercategories.add("Solid plastic");
+        wasteTypeSpinnercategories.add("Plastic cover");
+        wasteTypeSpinnercategories.add("Plastic Bottle");
+        wasteTypeSpinnercategories.add("Others");
+
+        ArrayAdapter<String> categoriesAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, wasteTypeSpinnercategories);
+        wasteTypeSpinner.setAdapter(categoriesAdapter);
+        wasteTypeSpinner.setOnSpinnerItemClickListener(new AwesomeSpinner.onSpinnerItemClickListener<String>() {
+            @Override
+            public void onItemSelected(int position, String itemAtPosition) {
+                Toast.makeText(MainPageActivity.this, "**********position=" + position + "**********itemAtPosition=" + itemAtPosition, Toast.LENGTH_SHORT).show();
+            }
+        });
+
+//wasteCharSpinner
+        List<String> wasteCharSpinnercategories = new ArrayList<String>();
+        wasteCharSpinnercategories.add("Polyethylene Terephthalate (PETE or PET)");
+        wasteCharSpinnercategories.add("High-Density Polyethylene (HDPE)");
+        wasteCharSpinnercategories.add("Low-Density Polyethylene (LDPE)");
+
+        ArrayAdapter<String> wasteCharSpinnercategoriesAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, wasteCharSpinnercategories);
+        wasteCharSpinner.setAdapter(wasteCharSpinnercategoriesAdapter);
+        wasteCharSpinner.setOnSpinnerItemClickListener(new AwesomeSpinner.onSpinnerItemClickListener<String>() {
+            @Override
+            public void onItemSelected(int position, String itemAtPosition) {
+                Toast.makeText(MainPageActivity.this, "**********position=" + position + "**********itemAtPosition=" + itemAtPosition, Toast.LENGTH_SHORT).show();
+            }
+        });
+
+//locTypeSpinner
+        List<String> locTypeSpinnerCategories = new ArrayList<String>();
+        locTypeSpinnerCategories.add("Land");
+        locTypeSpinnerCategories.add("Water");
+        locTypeSpinnerCategories.add("Space");
+
+        ArrayAdapter<String> locTypeSpinnerCategoriesAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, locTypeSpinnerCategories);
+        locTypeSpinner.setAdapter(locTypeSpinnerCategoriesAdapter);
+        locTypeSpinner.setOnSpinnerItemClickListener(new AwesomeSpinner.onSpinnerItemClickListener<String>() {
+            @Override
+            public void onItemSelected(int position, String itemAtPosition) {
+                Toast.makeText(MainPageActivity.this, "**********position=" + position + "**********itemAtPosition=" + itemAtPosition, Toast.LENGTH_SHORT).show();
+            }
+        });
+
+//wasteShapeSpinner
+        List<String> wasteShapeSpinnerCategories = new ArrayList<String>();
+        wasteShapeSpinnerCategories.add("Bottle");
+        wasteShapeSpinnerCategories.add("Cover");
+        wasteShapeSpinnerCategories.add("Cup");
+        wasteShapeSpinnerCategories.add("Bucket");
+        wasteShapeSpinnerCategories.add("Sheet");
+        wasteShapeSpinnerCategories.add("Rod");
+        wasteShapeSpinnerCategories.add("Tube");
+        wasteShapeSpinnerCategories.add("Film");
+
+        ArrayAdapter<String> wasteShapeSpinnerCategoriesAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, wasteShapeSpinnerCategories);
+        wasteShapeSpinner.setAdapter(wasteShapeSpinnerCategoriesAdapter);
+        wasteShapeSpinner.setOnSpinnerItemClickListener(new AwesomeSpinner.onSpinnerItemClickListener<String>() {
+            @Override
+            public void onItemSelected(int position, String itemAtPosition) {
+                Toast.makeText(MainPageActivity.this, "**********position=" + position + "**********itemAtPosition=" + itemAtPosition, Toast.LENGTH_SHORT).show();
+            }
+        });
+
+//sourceTypeSpinner
+        List<String> sourceTypeSpinnerCategories = new ArrayList<String>();
+        sourceTypeSpinnerCategories.add("Image by Camera");
+        sourceTypeSpinnerCategories.add("Video by Drone");
+        sourceTypeSpinnerCategories.add("Video by CCTV");
+
+        ArrayAdapter<String> sourceTypeSpinnerCategoriesAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, sourceTypeSpinnerCategories);
+        sourceTypeSpinner.setAdapter(sourceTypeSpinnerCategoriesAdapter);
+        sourceTypeSpinner.setOnSpinnerItemClickListener(new AwesomeSpinner.onSpinnerItemClickListener<String>() {
+            @Override
+            public void onItemSelected(int position, String itemAtPosition) {
+                Toast.makeText(MainPageActivity.this, "**********position=" + position + "**********itemAtPosition=" + itemAtPosition, Toast.LENGTH_SHORT).show();
+            }
+        });
+
 
     }
 
@@ -208,9 +336,10 @@ public class MainPageActivity extends AppCompatActivity implements IResult, Loca
         Bitmap device = Bitmap.createScaledBitmap(thumbnail, IMAGEWIDTH, IMAGEHEIGHT, true);
         device.compress(IMAGEFORMAT, COMPRESSION_QUALITY,
                 byteArrayBitmapStream);
-        imageView.setImageBitmap(device);
+        imageViewCardAdaptor.setVisibility(View.VISIBLE);
+        imageViewAttach.setImageBitmap(device);
         byte[] image = byteArrayBitmapStream.toByteArray();
-        String encodedImage = Base64.encodeToString(image, Base64.DEFAULT);
+        encodedImage = Base64.encodeToString(image, Base64.DEFAULT);
 
 //        Bitmap photoView = (Bitmap) data.getExtras().get("data");
 //        photoView.compress(IMAGEFORMAT, COMPRESSION_QUALITY, byteArrayBitmapStream);
@@ -234,7 +363,6 @@ public class MainPageActivity extends AppCompatActivity implements IResult, Loca
             e.printStackTrace();
         }
         // ticketMgsType 1->Text mgs, 2->Image mgs
-        imageProcessRequest(encodedImage);
         //    ivImage.setImageBitmap(thumbnail);
     }
 
@@ -250,10 +378,10 @@ public class MainPageActivity extends AppCompatActivity implements IResult, Loca
                 device.compress(IMAGEFORMAT, COMPRESSION_QUALITY,
                         byteArrayBitmapStream);
                 byte[] image = byteArrayBitmapStream.toByteArray();
-                String encodedImage = Base64.encodeToString(image, Base64.DEFAULT);
+                encodedImage = Base64.encodeToString(image, Base64.DEFAULT);
                 // ticketMgsType 1->Text mgs, 2->Image mgs
-                imageView.setImageBitmap(device);
-                imageProcessRequest(encodedImage);
+                imageViewCardAdaptor.setVisibility(View.VISIBLE);
+                imageViewAttach.setImageBitmap(device);
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -484,7 +612,18 @@ public class MainPageActivity extends AppCompatActivity implements IResult, Loca
         pro.setText(location.getProvider());
         mLat.setText("" + location.getLatitude());
         mLng.setText("" + location.getLongitude());
+        // Add a marker in Sydney and move the camera
+        LatLng sydney = new LatLng(location.getLatitude(), location.getLongitude());
+        mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
+        CameraUpdate center =
+                CameraUpdateFactory.newLatLng(sydney);
+        CameraUpdate zoom = CameraUpdateFactory.zoomTo(8);
 
+        mMap.moveCamera(center);
+        mMap.animateCamera(zoom);
+
+        mVolleyService.sendRequest(this, Request.Method.GET, "https://maps.googleapis.com/maps/api/geocode/json?latlng=" + location.getLatitude() + "," + location.getLongitude() + "&key=AIzaSyBhDoMmm8hJNWr0XRFSMGN2T5spmJSqegQ", null, "geocodeRequest", "application/json");
 
         //Remove Location Listener is mandatory
         CLocationWrapper.removeLocationListener(this);
@@ -499,6 +638,8 @@ public class MainPageActivity extends AppCompatActivity implements IResult, Loca
         County = "";
         PIN = "";
         Area = "";
+        route = "";
+
 
         try {
 
@@ -543,6 +684,7 @@ public class MainPageActivity extends AppCompatActivity implements IResult, Loca
                             Area = long_name;
                             System.out.println("Area = " + Area);
                         }
+                        addressTv.setText(Address1 + " " + Address2 + " " + Area + " " + City + " " + State + " Pin Code-" + PIN + ", " + Country);
                     }
                 }
             }
@@ -553,4 +695,9 @@ public class MainPageActivity extends AppCompatActivity implements IResult, Loca
 
     }
 
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        mMap = googleMap;
+
+    }
 }
